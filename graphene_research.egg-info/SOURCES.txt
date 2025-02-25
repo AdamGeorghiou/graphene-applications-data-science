@@ -1,0 +1,15 @@
+setup.py
+graphene_research.egg-info/PKG-INFO
+graphene_research.egg-info/SOURCES.txt
+graphene_research.egg-info/dependency_links.txt
+graphene_research.egg-info/requires.txt
+graphene_research.egg-info/top_level.txt
+src/__init__.py
+src/collectors/__init__.py
+src/collectors/arxiv_collector.py
+src/collectors/base_collector.py
+src/collectors/patent_collector.py
+src/collectors/scopus_collector.py
+src/config/__init__.py
+src/config/settings.py
+src/utils/__init__.py

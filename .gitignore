@@ -1,0 +1,24 @@
+# Virtual Environment
+venv/
+.env
+
+# Data Directories (raw data can be huge and may change frequently)
+data/raw/
+data/processed/
+data/nlp_results/
+
+# Logs
+logs/
+
+# System Files
+.DS_Store
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Jupyter Notebook checkpoints (if any)
+.ipynb_checkpoints/
+
+# Other temporary files
+*.tmp

@@ -1,0 +1,10 @@
+Metadata-Version: 2.2
+Name: graphene-research
+Version: 0.1
+Requires-Dist: pandas
+Requires-Dist: requests
+Requires-Dist: selenium
+Requires-Dist: beautifulsoup4
+Requires-Dist: python-dotenv
+Requires-Dist: webdriver_manager
+Dynamic: requires-dist

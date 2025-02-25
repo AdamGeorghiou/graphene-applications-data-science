@@ -1,0 +1,7 @@
+pandas
+requests
+selenium
+beautifulsoup4
+python-dotenv
+logging
+webdriver_manager
