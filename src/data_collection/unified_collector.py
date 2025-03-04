@@ -29,8 +29,9 @@ load_dotenv()
 # Now import the collectors
 from src.collectors.arxiv_collector import ArxivCollector
 from src.collectors.scopus_collector import ScopusCollector
-from src.collectors.patent_collector import GooglePatentCollector as PatentCollector
 from src.collectors.semantic_scholar_collector import SemanticScholarCollector
+from src.collectors.processed_patents_collector import ProcessedPatentsCollector  # Add this line
+
 
 # Conditionally import IEEE collector if module exists
 try:
@@ -54,11 +55,9 @@ SOURCE_PARAMS = {
         "sort": "-coverDate",
         "max_results": 200
     },
-    "patents": {
+    "patents": {  # Add this if not already there
         "default_query": "graphene applications",
-        "country_codes": ["US", "EP", "WO", "CN", "JP", "KR"],
-        "max_results": 150,
-        "sort": "recent"
+        "max_results": 150
     },
     "semantic_scholar": {
         "default_query": "graphene applications",
@@ -161,12 +160,14 @@ class UnifiedCollectionRunner:
         except Exception as e:
             self.logger.error(f"Error initializing Scopus collector: {e}")
         
+        # Add this block to initialize the ProcessedPatentsCollector
         try:
-            collectors["patents"] = PatentCollector()
-            self.logger.info("Patents collector initialized")
+            collectors["patents"] = ProcessedPatentsCollector()
+            self.logger.info("Patents collector initialized (using processed data)")
         except Exception as e:
             self.logger.error(f"Error initializing Patents collector: {e}")
-        
+    
+
         try:
             collectors["semantic_scholar"] = SemanticScholarCollector()
             self.logger.info("Semantic Scholar collector initialized")
@@ -263,7 +264,7 @@ class UnifiedCollectionRunner:
                     collector.search_items(
                     num_results=max_results
                     )
-                elif source == "patents":
+                elif source == "patents":  # Add this block
                     collector.search_items(
                     num_results=max_results
                     )
@@ -368,7 +369,7 @@ class UnifiedCollectionRunner:
                     collector.search_items(
                     num_results=max_results
                     )
-                elif source == "patents":
+                elif source == "patents":  # Add this block
                     collector.search_items(
                     num_results=max_results
                     )
@@ -443,7 +444,7 @@ class UnifiedCollectionRunner:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(sources), 4)) as executor:
             # Submit tasks
             future_to_source = {executor.submit(collect_from_source, source): source 
-                               for source in sources}
+                            for source in sources}
             
             # Process results as they complete
             for future in concurrent.futures.as_completed(future_to_source):
@@ -572,8 +573,6 @@ def parse_args():
     parser.add_argument('--scopus-max', type=int, default=None,
                         help='Maximum results from Scopus (default: use SOURCE_PARAMS)')
     
-    parser.add_argument('--patents-max', type=int, default=None,
-                        help='Maximum results from Patents (default: use SOURCE_PARAMS)')
     
     parser.add_argument('--semantic-max', type=int, default=None,
                         help='Maximum results from Semantic Scholar (default: use SOURCE_PARAMS)')
@@ -600,8 +599,6 @@ def main():
     if args.scopus_max:
         custom_params['scopus'] = {'max_results': args.scopus_max}
         
-    if args.patents_max:
-        custom_params['patents'] = {'max_results': args.patents_max}
         
     if args.semantic_max:
         custom_params['semantic_scholar'] = {'max_results': args.semantic_max}

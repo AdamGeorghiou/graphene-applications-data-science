@@ -22,3 +22,13 @@ __pycache__/
 
 # Other temporary files
 *.tmp
+# Ignore large data files
+data/raw/**/*.csv
+data/processed/*.csv
+data/nlp_results/*.csv
+*.egg-info
+**/__pycache__/
+logs/*.log
+# Ignore temporary files
+*.tmp
+data/interim/**
