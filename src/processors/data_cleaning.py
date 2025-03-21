@@ -7,6 +7,7 @@ import re
 import logging
 from typing import Dict, List, Any, Optional
 
+
 # Add the project root directory to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, project_root)
@@ -60,7 +61,6 @@ class GrapheneDataCleaner:
                         self.logger.error(f"Error loading {file}: {str(e)}")
         return data_frames
 
-    
     def clean_text(self, text: str) -> str:
         """Clean and standardize text fields"""
         if pd.isna(text):
@@ -75,15 +75,21 @@ class GrapheneDataCleaner:
         text = ' '.join(text.split())
         return text.strip()
     
-    def standardize_dates(self, date_str: str) -> Optional[str]:
-        """Standardize date formats"""
-        if pd.isna(date_str):
+    def standardize_dates(self, date_val: Any) -> Optional[str]:
+        """Extract only the year from date values.
+        Converts the input to a string if needed."""
+        if pd.isna(date_val):
             return None
         try:
-            return pd.to_datetime(date_str).strftime('%Y-%m-%d')
+            # Convert the date value to a string
+            date_str = str(date_val)
+            # Extract a 4-digit year from the string
+            match = re.search(r'\b(19|20)\d{2}\b', date_str)
+            if match:
+                return match.group(0)  # Return only the year
         except Exception as e:
-            self.logger.warning(f"Could not parse date: {date_str}")
-            return None
+            self.logger.warning(f"Could not parse date: {date_val}")
+        return None  
     
     def standardize_graphene_terms(self, text: str) -> str:
         """Standardize graphene-specific terminology"""
@@ -142,11 +148,18 @@ class GrapheneDataCleaner:
         if 'affiliations' in df_clean.columns:
             df_clean['affiliations'] = df_clean['affiliations'].apply(self.normalize_affiliations)
         
-        # Standardize dates
-        date_columns = ['published_date', 'collection_date']
+        
+        
+        # Standardize dates to extract only the year
+        date_columns = ['published_date', 'collection_date', 'date']
         for col in date_columns:
             if col in df_clean.columns:
                 df_clean[col] = df_clean[col].apply(self.standardize_dates)
+                df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').astype('Int64')  # Convert to integer year
+
+        # If the cleaned dataframe has a 'date' column but no 'published_date', rename it.
+        if 'date' in df_clean.columns and 'published_date' not in df_clean.columns:
+            df_clean = df_clean.rename(columns={'date': 'published_date'})
         
         # Add source column if missing
         if 'source' not in df_clean.columns:
@@ -158,6 +171,7 @@ class GrapheneDataCleaner:
         df_clean = df_clean.dropna(subset=['title'])
         
         return df_clean
+
     
     def merge_and_structure_data(self, data_frames: Dict[str, pd.DataFrame]) -> Optional[pd.DataFrame]:
         """Merge and structure all cleaned dataframes with cross-source deduplication"""
@@ -224,12 +238,20 @@ class GrapheneDataCleaner:
             print("No data files found")
             self.logger.error("No data files found")
             return None, None
-        
+
         print("Merging and cleaning data...")
         cleaned_data = self.merge_and_structure_data(data_frames)
         if cleaned_data is None:
             return None, None
-        
+
+        # If 'published_date' is missing but 'date' exists, rename it
+        if 'published_date' not in cleaned_data.columns and 'date' in cleaned_data.columns:
+            cleaned_data = cleaned_data.rename(columns={'date': 'published_date'})
+
+        # Now subset to only the necessary columns
+        columns_to_keep = ['title', 'abstract', 'published_date', 'source', 'authors']
+        cleaned_data = cleaned_data[[col for col in columns_to_keep if col in cleaned_data.columns]]
+
         print("Generating summary...")
         summary = self.generate_summary(cleaned_data)
         
@@ -245,6 +267,7 @@ class GrapheneDataCleaner:
         print(f"Saved summary to {summary_path}")
         
         return cleaned_data, summary
+
 
 def main():
     cleaner = GrapheneDataCleaner()

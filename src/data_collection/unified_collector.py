@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Unified Collection Runner for Graphene Applications Project
 
@@ -573,6 +572,9 @@ def parse_args():
     parser.add_argument('--scopus-max', type=int, default=None,
                         help='Maximum results from Scopus (default: use SOURCE_PARAMS)')
     
+    parser.add_argument('--patents-max', type=int, default=None,
+                    help='Maximum results from Patents (default: use SOURCE_PARAMS)')
+    
     
     parser.add_argument('--semantic-max', type=int, default=None,
                         help='Maximum results from Semantic Scholar (default: use SOURCE_PARAMS)')
@@ -599,7 +601,9 @@ def main():
     if args.scopus_max:
         custom_params['scopus'] = {'max_results': args.scopus_max}
         
-        
+    if args.patents_max:
+        custom_params['patents'] = {'max_results': args.patents_max}
+
     if args.semantic_max:
         custom_params['semantic_scholar'] = {'max_results': args.semantic_max}
         

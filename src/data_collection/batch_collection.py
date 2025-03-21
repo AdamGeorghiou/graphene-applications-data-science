@@ -17,6 +17,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, project_root)
 
 # Collection size presets
+# Collection size presets
 COLLECTION_SIZES = {
     'small': {
         'arxiv': 50,
@@ -26,21 +27,20 @@ COLLECTION_SIZES = {
         'ieee': 50
     },
     'medium': {
-        'arxiv': 200,
-        'scopus': 200,
-        'patents': 150,
-        'semantic_scholar': 200,
-        'ieee': 200
+        'arxiv': 500,  # Changed from 200 to 500
+        'scopus': 500,  # Changed from 200 to 500
+        'patents': 500,  # Changed from 150 to 500
+        'semantic_scholar': 500,  # Changed from 200 to 500
+        'ieee': 500  # Changed from 200 to 500
     },
     'large': {
-        'arxiv': 500,
-        'scopus': 500,
-        'patents': 300,
-        'semantic_scholar': 500,
-        'ieee': 500
+        'arxiv': 3500,  # Optionally increase this too
+        'scopus': 3500,  # Optionally increase this too
+        'patents': 3500,  # Optionally increase this too
+        'semantic_scholar': 3500,  # Optionally increase this too
+        'ieee': 1000  # Optionally increase this too
     }
 }
-
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Batch data collection for Graphene Applications project')

@@ -1,8 +1,8 @@
 import os
 import sys
 import pandas as pd
-from datetime import datetime
 import logging
+import re 
 
 # Add the project root directory to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -16,8 +16,7 @@ def setup_logging():
     logger = logging.getLogger('patents_preprocessor')
     logger.setLevel(logging.INFO)
     
-    # Check if handler already exists
-    if not logger.handlers:
+    if not logger.handlers:  # Avoid duplicate handlers
         fh = logging.FileHandler(os.path.join(log_dir, 'patents_preprocessing.log'))
         fh.setLevel(logging.INFO)
         
@@ -28,6 +27,13 @@ def setup_logging():
         
     logger.propagate = False
     return logger
+
+def extract_year(date_str):
+    """Extracts only the year from a date string (YYYY-MM-DD -> YYYY)."""
+    if pd.isna(date_str) or not isinstance(date_str, str):
+        return None
+    match = re.search(r'\b(19|20)\d{2}\b', date_str)  # Match a 4-digit year (1900-2099)
+    return match.group(0) if match else None
 
 def preprocess_google_patents():
     """Preprocess Google Patents CSV files to a simplified format"""
@@ -40,7 +46,6 @@ def preprocess_google_patents():
     
     print(f"Looking for CSV files in: {patents_dir}")
     
-    # List all files in the directory
     all_files = os.listdir(patents_dir)
     
     # Filter for CSV files
@@ -68,28 +73,24 @@ def preprocess_google_patents():
             for _, row in df.iterrows():
                 try:
                     # Get title 
-                    title = ""
-                    if 'title' in df.columns and pd.notna(row['title']):
-                        title = str(row['title'])
-                    else:
+                    title = str(row['title']) if 'title' in df.columns and pd.notna(row['title']) else None
+                    if not title:
                         continue  # Skip patents without a title
                     
-                    # Get publication date (or most recent date available)
-                    date = ""
+                    # Extract only the year from available date fields
+                    date = None
                     if 'publication date' in df.columns and pd.notna(row['publication date']):
-                        date = str(row['publication date'])
+                        date = extract_year(str(row['publication date']))
                     elif 'grant date' in df.columns and pd.notna(row['grant date']):
-                        date = str(row['grant date'])
+                        date = extract_year(str(row['grant date']))
                     elif 'filing/creation date' in df.columns and pd.notna(row['filing/creation date']):
-                        date = str(row['filing/creation date'])
+                        date = extract_year(str(row['filing/creation date']))
                     elif 'priority date' in df.columns and pd.notna(row['priority date']):
-                        date = str(row['priority date'])
-                    
+                        date = extract_year(str(row['priority date']))
+
                     # Get authors
-                    authors = ""
-                    if 'inventor/author' in df.columns and pd.notna(row['inventor/author']):
-                        authors = str(row['inventor/author'])
-                    
+                    authors = str(row['inventor/author']) if 'inventor/author' in df.columns and pd.notna(row['inventor/author']) else ""
+
                     # Simplified patent entry with just the essentials
                     patent_data = {
                         'title': title,
