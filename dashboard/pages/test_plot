@@ -1,0 +1,68 @@
+import streamlit as st
+import os
+import pandas as pd
+import plotly.express as px
+from utils.data_loader import load_summary, load_full_results, get_application_data
+
+# Page configuration - must come first
+st.set_page_config(
+    page_title="Graphene Applications Dashboard",
+    page_icon="📊",
+    layout="wide",
+)
+
+st.title("Graphene Applications Dashboard - Debug")
+st.write("Adding basic visualization")
+
+try:
+    # Load data
+    st.write("Loading summary data...")
+    summary = load_summary()
+    
+    # Display some basic summary stats
+    st.header("Summary Statistics")
+    st.write(f"Total Documents: {summary['total_documents']}")
+    st.write(f"Total Applications Found: {summary['total_applications_found']}")
+    st.write(f"Unique Applications: {summary['unique_applications']}")
+    
+    # Show top applications with a simple bar chart
+    st.header("Top Applications")
+    top_apps = summary['top_applications']
+    df = pd.DataFrame({
+        'Application': list(top_apps.keys()),
+        'Count': list(top_apps.values())
+    }).sort_values('Count', ascending=False)
+    
+    # Create a simple bar chart
+    fig = px.bar(
+        df, 
+        x='Application', 
+        y='Count',
+        title="Top Applications by Count"
+    )
+    st.plotly_chart(fig)
+    
+    # Add year distribution as another visualization
+    st.header("Year Distribution")
+    year_data = summary['year_distribution']
+    year_df = pd.DataFrame({
+        'Year': [int(year) for year in year_data.keys() if year.isdigit()],
+        'Count': [count for year, count in year_data.items() if year.isdigit()]
+    }).sort_values('Year')
+    
+    # Filter out years before 2000
+    year_df = year_df[year_df['Year'] >= 2000]
+    
+    # Create line chart
+    fig = px.line(
+        year_df,
+        x='Year',
+        y='Count',
+        markers=True,
+        title="Publications Timeline"
+    )
+    st.plotly_chart(fig)
+
+except Exception as e:
+    st.error(f"Error occurred: {str(e)}")
+    st.exception(e)

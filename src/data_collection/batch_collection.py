@@ -24,21 +24,24 @@ COLLECTION_SIZES = {
         'scopus': 50,
         'patents': 50,
         'semantic_scholar': 50,
-        'ieee': 50
+        'ieee': 50,
+        'pubmed': 50  # Add this line
     },
     'medium': {
-        'arxiv': 500,  # Changed from 200 to 500
-        'scopus': 500,  # Changed from 200 to 500
-        'patents': 500,  # Changed from 150 to 500
-        'semantic_scholar': 500,  # Changed from 200 to 500
-        'ieee': 500  # Changed from 200 to 500
+        'arxiv': 500,
+        'scopus': 500,
+        'patents': 500,
+        'semantic_scholar': 500,
+        'ieee': 500,
+        'pubmed': 500  # Add this line
     },
     'large': {
-        'arxiv': 3500,  # Optionally increase this too
-        'scopus': 3500,  # Optionally increase this too
-        'patents': 3500,  # Optionally increase this too
-        'semantic_scholar': 3500,  # Optionally increase this too
-        'ieee': 1000  # Optionally increase this too
+        'arxiv': 3500,
+        'scopus': 3500,
+        'patents': 3500,
+        'semantic_scholar': 3500,
+        'ieee': 1000,
+        'pubmed': 2000  # Add this line (maybe fewer than arxiv since it's more specialized)
     }
 }
 def parse_args():
@@ -96,7 +99,8 @@ def run_general_collection(size, sources=None, parallel=True, output_dir=None):
         'scopus': 'scopus', 
         'patents': 'patents',
         'semantic_scholar': 'semantic',
-        'ieee': 'ieee'
+        'ieee': 'ieee',
+        'pubmed': 'pubmed'
     }
     for source, count in size_params.items():
         param_name = f"--{param_name_map.get(source, source)}-max"

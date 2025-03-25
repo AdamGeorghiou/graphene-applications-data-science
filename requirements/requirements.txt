@@ -5,3 +5,4 @@ beautifulsoup4
 python-dotenv
 logging
 webdriver_manager
+biopython>=1.80

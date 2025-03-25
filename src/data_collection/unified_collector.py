@@ -17,6 +17,7 @@ from typing import Dict, List, Any, Optional
 import concurrent.futures
 from dotenv import load_dotenv
 
+
 # Add the project root to sys.path to allow imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if project_root not in sys.path:
@@ -30,7 +31,7 @@ from src.collectors.arxiv_collector import ArxivCollector
 from src.collectors.scopus_collector import ScopusCollector
 from src.collectors.semantic_scholar_collector import SemanticScholarCollector
 from src.collectors.processed_patents_collector import ProcessedPatentsCollector  # Add this line
-
+from src.collectors.pubmed_collector import PubMedCollector
 
 # Conditionally import IEEE collector if module exists
 try:
@@ -70,6 +71,10 @@ SOURCE_PARAMS = {
         "max_results": 200,
         "sort_order": "desc",
         "sort_field": "publication_date"
+    },  
+    "pubmed": {
+        "default_query": "graphene AND (application OR applications OR device OR technology OR biomedical OR biosensor)",
+        "max_results": 100
     }
 }
 
@@ -182,6 +187,15 @@ class UnifiedCollectionRunner:
                 self.logger.error(f"Error initializing IEEE collector: {e}")
                 
         self.logger.info(f"Initialized {len(collectors)} collectors: {', '.join(collectors.keys())}")
+
+        try:
+            # Get email from environment variable or use a default
+            email = os.getenv("ENTREZ_EMAIL", "your-email@example.com")
+            collectors["pubmed"] = PubMedCollector(email=email)
+            self.logger.info(f"PubMed collector initialized with email: {email}")
+        except Exception as e:
+            self.logger.error(f"Error initializing PubMed collector: {e}")
+
         return collectors
     
     def run_collection(self, sources: List[str] = None, custom_params: Dict[str, Dict] = None) -> Dict[str, Any]:
@@ -280,6 +294,11 @@ class UnifiedCollectionRunner:
                         content_type=additional_params.get('content_type', None),
                         start_year=additional_params.get('start_year', 2010),
                         end_year=additional_params.get('end_year', datetime.now().year)
+                    )
+                elif source == "pubmed":
+                    collector.search_items(
+                        query=query,  # Pass the query parameter
+                        num_results=max_results
                     )
                 
                 # Calculate elapsed time
@@ -386,6 +405,12 @@ class UnifiedCollectionRunner:
                         start_year=additional_params.get('start_year', 2010),
                         end_year=additional_params.get('end_year', datetime.now().year)
                     )
+                elif source == "pubmed":
+                    collector.search_items(
+                        query=query,  # Pass the query parameter
+                        num_results=max_results
+                    )
+
                 
                 # Calculate elapsed time
                 elapsed_time = time.time() - start_time

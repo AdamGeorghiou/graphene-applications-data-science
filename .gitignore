@@ -32,3 +32,5 @@ logs/*.log
 # Ignore temporary files
 *.tmp
 data/interim/**
+visualisations.ipynb
+backup_20250321/
