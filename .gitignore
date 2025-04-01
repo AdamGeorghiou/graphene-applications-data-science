@@ -5,7 +5,7 @@ venv/
 # Data Directories (raw data can be huge and may change frequently)
 data/raw/
 data/processed/
-data/nlp_results/
+# data/nlp_results/
 
 # Logs
 logs/
@@ -35,7 +35,7 @@ data/interim/**
 visualisations.ipynb
 backup_20250321/
 # Ignore BERTopic model files
-data/nlp_results/bertopic_model/
+data/nlp_results/bertopic_model
 data/nlp_results/*bertopic*
 *.model
 *.pkl
