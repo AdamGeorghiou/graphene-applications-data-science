@@ -38,21 +38,34 @@ class BaseCollector(ABC):
     def validate_item(self, item: Dict[str, Any]) -> bool:
         """Validate collected item data"""
         required_fields = ['title', 'abstract', 'published_date', 'collection_date', 'source']
-        return all(field in item and item[field] for field in required_fields)
+        for field in required_fields:
+            if field not in item or not item[field]:
+                self.logger.warning(f"Item validation failed: missing required field '{field}'")
+                return False
+
+        # Log validation success
+        return True
     
     def save_data(self, filename: str) -> pd.DataFrame:
         """Save collected data to CSV with validation"""
         if not self.data:
             self.logger.warning("No data to save!")
             return None
-            
+        
+        self.logger.info(f"Attempting to save {len(self.data)} items to CSV")
+
         try:
             # Filter out invalid items
             valid_data = [item for item in self.data if self.validate_item(item)]
             self.logger.info(f"Valid items: {len(valid_data)}/{len(self.data)}")
             
             df = pd.DataFrame(valid_data)
-            
+            # After filtering out invalid items
+            invalid_items = [item for item in self.data if not self.validate_item(item)]
+            if invalid_items:
+                self.logger.warning(f"Filtered out {len(invalid_items)} invalid items")
+                for item in invalid_items:
+                    self.logger.warning(f"Invalid item title: {item.get('title', 'NO TITLE')[:100]}")
             # Save full dataset
             output_path = os.path.join(self.data_dir, filename)
             df.to_csv(output_path, index=False)

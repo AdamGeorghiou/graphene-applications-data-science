@@ -22,7 +22,7 @@ class PubMedCollector(BaseCollector):
     using the NCBI Entrez API.
     """
     
-    def __init__(self, email: str = "your-email@example.com"):
+    def __init__(self, email: str = "aaageorghiou@gmail.com"):
         """
         Initialize the PubMed collector
         

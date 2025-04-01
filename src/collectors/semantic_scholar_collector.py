@@ -37,7 +37,8 @@ class SemanticScholarCollector(BaseCollector):
         if not self.api_key:
             self.logger.error("Semantic Scholar API key not found. Please set SEMANTIC_SCHOLAR_API_KEY environment variable.")
             return
-            
+        
+        self.logger.info(f"Collecting from Semantic Scholar with max_results={num_results}")    
         print(f"Searching Semantic Scholar for: {query}")
         print(f"Using API key: {self.api_key[:5]}..." if self.api_key else "No API key provided")
         
@@ -84,14 +85,17 @@ class SemanticScholarCollector(BaseCollector):
                 
                 # Process response
                 data = response.json()
-                
+                # Log total results if available
+                if 'total' in data:
+                    self.logger.info(f"API reports {data['total']} total results available")
+
                 if 'data' not in data or not data['data']:
                     print("No more papers found")
                     break
                 
                 papers = data['data']
                 print(f"Found {len(papers)} papers in this batch")
-                
+                self.logger.info(f"API returned {len(papers)} papers in batch (offset={offset}, total collected so far: {papers_collected})")
                 # Process each paper
                 for paper in papers:
                     try:
@@ -145,10 +149,11 @@ class SemanticScholarCollector(BaseCollector):
                 papers_collected += len(papers)
                 offset += len(papers)
                 
+                self.logger.info(f"Checking if we should continue: papers in batch={len(papers)}, batch_size={batch_size}, total collected={papers_collected}, target={num_results}")
                 # Check if we should continue
-                if len(papers) < batch_size or papers_collected >= num_results:
+                if len(papers) == 0 or papers_collected >= num_results:
                     break
-                    
+                self.logger.info(f"Collection complete. Total papers collected: {len(self.data)} of {num_results} requested")
                 # Rate limiting
                 time.sleep(1)
                 

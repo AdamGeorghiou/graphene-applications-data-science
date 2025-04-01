@@ -32,7 +32,7 @@ from src.collectors.scopus_collector import ScopusCollector
 from src.collectors.semantic_scholar_collector import SemanticScholarCollector
 from src.collectors.processed_patents_collector import ProcessedPatentsCollector  # Add this line
 from src.collectors.pubmed_collector import PubMedCollector
-
+from src.collectors.science_direct_collector import ScienceDirectCollector
 # Conditionally import IEEE collector if module exists
 try:
     from src.collectors.ieee_collector import IEEECollector # type: ignore
@@ -75,6 +75,10 @@ SOURCE_PARAMS = {
     "pubmed": {
         "default_query": "graphene AND (application OR applications OR device OR technology OR biomedical OR biosensor)",
         "max_results": 100
+    },
+    "sciencedirect": {
+        "default_query": "graphene AND (application OR applications OR use OR uses OR device OR technology)",
+        "max_results": 200
     }
 }
 
@@ -196,6 +200,13 @@ class UnifiedCollectionRunner:
         except Exception as e:
             self.logger.error(f"Error initializing PubMed collector: {e}")
 
+
+        try:
+            collectors["sciencedirect"] = ScienceDirectCollector()
+            self.logger.info("ScienceDirect collector initialized")
+        except Exception as e:
+            self.logger.error(f"Error initializing ScienceDirect collector: {e}")
+
         return collectors
     
     def run_collection(self, sources: List[str] = None, custom_params: Dict[str, Dict] = None) -> Dict[str, Any]:
@@ -298,6 +309,11 @@ class UnifiedCollectionRunner:
                 elif source == "pubmed":
                     collector.search_items(
                         query=query,  # Pass the query parameter
+                        num_results=max_results
+                    )
+                elif source == "sciencedirect":
+                    collector.search_items(
+                        query=query,
                         num_results=max_results
                     )
                 
@@ -408,6 +424,11 @@ class UnifiedCollectionRunner:
                 elif source == "pubmed":
                     collector.search_items(
                         query=query,  # Pass the query parameter
+                        num_results=max_results
+                    )
+                elif source == "sciencedirect":
+                    collector.search_items(
+                        query=query,
                         num_results=max_results
                     )
 
