@@ -1,3 +1,413 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f5c39f2479148ab224f7c8a6e832c626fb84e93ba1085763ee53e457992f975e
-size 8346
+{
+  "total_documents": 46225,
+  "total_applications_found": 37397,
+  "unique_applications": 84,
+  "top_applications": {
+    "composite": 6257,
+    "electrode": 3789,
+    "electronic": 3427,
+    "sensor": 2946,
+    "battery": 2406,
+    "catalyst": 1590,
+    "display": 1289,
+    "coating": 1228,
+    "membrane": 1160,
+    "reduction": 1042
+  },
+  "application_category_distribution": {
+    "Electronics": 14634,
+    "Energy": 5208,
+    "Materials": 11735,
+    "Biomedical": 1561,
+    "Chemical": 3710,
+    "Environmental": 549
+  },
+  "trl_distribution": {
+    "0": 7455,
+    "9": 65,
+    "3": 843,
+    "2": 34271,
+    "1": 555,
+    "6": 3027,
+    "7": 2,
+    "8": 3,
+    "5": 4
+  },
+  "research_type_distribution": {
+    "academic": 8994,
+    "industrial": 37231
+  },
+  "fabrication_methods": {
+    "graphene oxide": 20426,
+    "reduced graphene oxide": 6423,
+    "CVD": 869,
+    "sonication": 107,
+    "chemical reduction": 84,
+    "thermal reduction": 68,
+    "phase exfoliation": 63,
+    "epitaxial growth": 51,
+    "Hummers method": 48,
+    "the exfoliation": 35
+  },
+  "performance_metrics_summary": {
+    "electronic": {
+      "strength": {
+        "avg": 102.4176923076923,
+        "min": 0.12,
+        "max": 601.11,
+        "count": 13
+      }
+    },
+    "transistor": {},
+    "composite": {
+      "strength": {
+        "avg": 132.51085714285713,
+        "min": 0.12,
+        "max": 845.3,
+        "count": 35
+      }
+    },
+    "energy storage": {
+      "strength": {
+        "avg": 80.3675,
+        "min": 21.27,
+        "max": 114.0,
+        "count": 4
+      }
+    },
+    "membrane": {
+      "strength": {
+        "avg": 90.66999999999999,
+        "min": 40.7,
+        "max": 140.64,
+        "count": 2
+      }
+    },
+    "circuit": {
+      "strength": {
+        "avg": 40.7,
+        "min": 40.7,
+        "max": 40.7,
+        "count": 1
+      }
+    },
+    "sensor": {
+      "sensitivity": {
+        "avg": 254.6920286407767,
+        "min": 0.0,
+        "max": 5632.0,
+        "count": 206
+      },
+      "detection_limit": {
+        "avg": 50.57615884057971,
+        "min": 0.0001,
+        "max": 6045.6,
+        "count": 345
+      },
+      "strength": {
+        "avg": 70.56222222222223,
+        "min": 0.12,
+        "max": 339.5,
+        "count": 9
+      }
+    },
+    "biomedical": {
+      "strength": {
+        "avg": 77.9,
+        "min": 77.9,
+        "max": 77.9,
+        "count": 1
+      }
+    },
+    "biosensing": {},
+    "drug delivery": {},
+    "solar cell": {},
+    "filter": {},
+    "nanomaterial": {
+      "strength": {
+        "avg": 71.85000000000001,
+        "min": 11.4,
+        "max": 132.3,
+        "count": 2
+      }
+    },
+    "display": {
+      "strength": {
+        "avg": 33.17666666666666,
+        "min": 21.27,
+        "max": 55.26,
+        "count": 3
+      }
+    },
+    "photovoltaic": {},
+    "electrode": {
+      "strength": {
+        "avg": 21.27,
+        "min": 21.27,
+        "max": 21.27,
+        "count": 1
+      }
+    },
+    "supercapacitor": {
+      "strength": {
+        "avg": 93.1,
+        "min": 93.1,
+        "max": 93.1,
+        "count": 2
+      }
+    },
+    "catalyst": {},
+    "fuel cell": {
+      "strength": {
+        "avg": 40.7,
+        "min": 40.7,
+        "max": 40.7,
+        "count": 1
+      }
+    },
+    "graphene based electrode": {},
+    "flexible electronics": {
+      "strength": {
+        "avg": 296.1,
+        "min": 296.1,
+        "max": 296.1,
+        "count": 1
+      }
+    },
+    "oxidation": {
+      "strength": {
+        "avg": 84.43333333333334,
+        "min": 33.76,
+        "max": 140.64,
+        "count": 6
+      }
+    },
+    "tissue engineering": {},
+    "graphene electronic": {},
+    "conductor": {
+      "strength": {
+        "avg": 50.2,
+        "min": 50.2,
+        "max": 50.2,
+        "count": 1
+      }
+    },
+    "water treatment": {},
+    "electrocatalyst": {},
+    "reduction": {
+      "strength": {
+        "avg": 191.375,
+        "min": 52.0,
+        "max": 339.5,
+        "count": 4
+      }
+    },
+    "energy harvesting": {
+      "strength": {
+        "avg": 114.0,
+        "min": 114.0,
+        "max": 114.0,
+        "count": 1
+      }
+    },
+    "biosensor": {
+      "sensitivity": {
+        "avg": 404.68558333333334,
+        "min": 0.214,
+        "max": 4000.0,
+        "count": 36
+      },
+      "detection_limit": {
+        "avg": 143.92781237113402,
+        "min": 0.0034,
+        "max": 6045.6,
+        "count": 97
+      }
+    },
+    "coating": {
+      "strength": {
+        "avg": 81.4,
+        "min": 32.1,
+        "max": 123.3,
+        "count": 4
+      }
+    },
+    "barrier": {
+      "strength": {
+        "avg": 93.1,
+        "min": 93.1,
+        "max": 93.1,
+        "count": 2
+      }
+    },
+    "battery": {
+      "strength": {
+        "avg": 23.0,
+        "min": 23.0,
+        "max": 23.0,
+        "count": 1
+      }
+    },
+    "semiconductor": {
+      "strength": {
+        "avg": 33.76,
+        "min": 33.76,
+        "max": 33.76,
+        "count": 1
+      }
+    },
+    "environmental remediation": {},
+    "antibacterial": {
+      "strength": {
+        "avg": 120.0,
+        "min": 120.0,
+        "max": 120.0,
+        "count": 1
+      }
+    },
+    "graphene Based Photocatalyst": {},
+    "additive": {},
+    "water purification": {},
+    "photocatalyst": {},
+    "reinforcement": {
+      "strength": {
+        "avg": 259.71000000000004,
+        "min": 195.0,
+        "max": 324.42,
+        "count": 2
+      }
+    },
+    "graphene composite": {
+      "strength": {
+        "avg": 55.26,
+        "min": 55.26,
+        "max": 55.26,
+        "count": 1
+      }
+    },
+    "graphene based semiconductor": {},
+    "cellular": {},
+    "chemical conversion": {},
+    "graphene semiconductor": {},
+    "gas separation": {},
+    "graphene supercapacitor": {},
+    "graphene electrode": {},
+    "graphene transistor": {},
+    "graphene Composite": {},
+    "graphene based composite": {},
+    "pollution control": {},
+    "graphene Electronic": {},
+    "graphene based biosensing": {},
+    "graphene photocatalyst": {},
+    "graphene sensor": {},
+    "graphene membrane": {},
+    "graphene reinforcement": {},
+    "graphene catalyst": {},
+    "graphene coating": {},
+    "graphene based electronic": {},
+    "graphene Electrode": {},
+    "graphene additive": {},
+    "graphene Membrane": {},
+    "graphene nanomaterial": {},
+    "graphene biosensor": {},
+    "graphene oxidation": {},
+    "graphene reduction": {},
+    "graphene Oxidation": {},
+    "graphene barrier": {},
+    "graphene based transistor": {},
+    "graphene electrocatalyst": {},
+    "graphene based filter": {},
+    "touchscreen": {},
+    "graphene Transistor": {},
+    "graphene Biosensor": {},
+    "graphene Coating": {},
+    "graphene display": {},
+    "graphene conductor": {},
+    "graphene antibacterial": {},
+    "graphene battery": {},
+    "graphene filter": {},
+    "graphene circuit": {}
+  },
+  "year_distribution": {
+    "1939": 1,
+    "1950": 1,
+    "1951": 3,
+    "1952": 1,
+    "1953": 3,
+    "1957": 1,
+    "1958": 1,
+    "1960": 2,
+    "1961": 1,
+    "1962": 2,
+    "1963": 1,
+    "1964": 2,
+    "1967": 1,
+    "1968": 1,
+    "1971": 1,
+    "1972": 2,
+    "1973": 4,
+    "1974": 5,
+    "1975": 2,
+    "1976": 3,
+    "1977": 5,
+    "1978": 5,
+    "1979": 12,
+    "1980": 8,
+    "1981": 7,
+    "1982": 10,
+    "1983": 22,
+    "1984": 29,
+    "1985": 18,
+    "1986": 29,
+    "1987": 29,
+    "1988": 28,
+    "1989": 35,
+    "1990": 34,
+    "1991": 44,
+    "1992": 54,
+    "1993": 80,
+    "1994": 63,
+    "1995": 82,
+    "1996": 85,
+    "1997": 88,
+    "1998": 94,
+    "1999": 116,
+    "2000": 96,
+    "2001": 127,
+    "2002": 166,
+    "2003": 212,
+    "2004": 223,
+    "2005": 223,
+    "2006": 273,
+    "2007": 330,
+    "2008": 348,
+    "2009": 402,
+    "2010": 635,
+    "2011": 818,
+    "2012": 1222,
+    "2013": 1404,
+    "2014": 1659,
+    "2015": 1927,
+    "2016": 2343,
+    "2017": 2709,
+    "2018": 2979,
+    "2019": 3197,
+    "2020": 2944,
+    "2021": 2878,
+    "2022": 2521,
+    "2023": 2457,
+    "2024": 5200,
+    "2025": 4771
+  },
+  "top_property_application_pairs": {
+    "thermal-unknown": 1760,
+    "conductivity-unknown": 1523,
+    "mechanical-unknown": 1427,
+    "electrical-unknown": 1231,
+    "optical-unknown": 1004,
+    "strength-unknown": 603,
+    "surface area-unknown": 505,
+    "flexibility-unknown": 222,
+    "transparency-unknown": 68
+  }
+}
