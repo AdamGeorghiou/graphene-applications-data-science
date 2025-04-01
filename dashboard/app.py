@@ -38,26 +38,92 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Load data directly without relying on utils
-@st.cache_data
+@st.cache_data(ttl=3600) # Cache data for 1 hour (adjust as needed)
 def load_data():
-    """Load and cache data for faster dashboard performance"""
-    # Define paths
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    nlp_results_dir = os.path.join(project_root, "data", "nlp_results")
-    
-    # Load summary
-    summary_path = os.path.join(nlp_results_dir, "enhanced_nlp_summary.json")
-    with open(summary_path, 'r') as f:
-        summary = json.load(f)
-    
-    # Load full results
-    results_path = os.path.join(nlp_results_dir, "nlp_results.json")
-    with open(results_path, 'r') as f:
-        full_results = json.load(f)
-    
-    # Create application dataframe
-    app_df = get_application_data(full_results)
-    
+    """
+    Load NLP results, trying local path first and falling back to GitHub.
+    Caches the result for faster performance.
+    """
+    import requests # Make sure requests is imported
+
+    summary = None
+    full_results = None
+    app_df = pd.DataFrame() # Initialize empty DataFrame
+
+    # --- Try Loading Locally ---
+    try:
+        # Construct local path relative to this script file
+        script_dir = os.path.dirname(__file__)
+        # Assuming app.py is in the root of the project, or adjust as needed
+        # If app.py is in a 'src' folder, use os.path.join(script_dir, "..")
+        project_root = script_dir # Change if app.py is not in project root
+        nlp_results_dir = os.path.join(project_root, "data", "nlp_results")
+
+        # Check if the directory and files exist locally
+        summary_path = os.path.join(nlp_results_dir, "enhanced_nlp_summary.json")
+        results_path = os.path.join(nlp_results_dir, "nlp_results.json")
+
+        if os.path.exists(summary_path) and os.path.exists(results_path):
+            st.write("Attempting to load data from local files...") # Info message
+            with open(summary_path, 'r', encoding='utf-8') as f:
+                summary = json.load(f)
+
+            with open(results_path, 'r', encoding='utf-8') as f:
+                full_results = json.load(f)
+
+            st.success("✅ Loaded data successfully from local files.")
+        else:
+             # Raise error to trigger the except block if files aren't found locally
+            raise FileNotFoundError("Local data files not found.")
+
+    except Exception as e:
+        st.warning(f"⚠️ Local loading failed ({e}). Attempting to load from GitHub...")
+
+        # --- Fallback to Loading from GitHub ---
+        # !!! IMPORTANT: Confirm GitHub username, repo name, and branch !!!
+        github_username = "AdamGeorghiou"
+        github_repo = "graphene-applications-data-science"
+        github_branch = "main" # Or whichever branch holds the data
+        github_path = "data/nlp_results" # Path within the repo
+
+        base_url = f"https://raw.githubusercontent.com/{github_username}/{github_repo}/{github_branch}/{github_path}"
+
+        summary_url = f"{base_url}/enhanced_nlp_summary.json"
+        results_url = f"{base_url}/nlp_results.json"
+
+        try:
+            # Load summary from GitHub
+            summary_response = requests.get(summary_url)
+            summary_response.raise_for_status() # Raise exception for bad status codes (like 404)
+            summary = json.loads(summary_response.text)
+
+            # Load full results from GitHub
+            results_response = requests.get(results_url)
+            results_response.raise_for_status() # Raise exception for bad status codes
+            full_results = json.loads(results_response.text)
+
+            st.success("✅ Loaded data successfully from GitHub.")
+
+        except requests.exceptions.RequestException as github_e:
+            st.error(f"❌ Failed to load data from GitHub: {github_e}")
+            # Return empty data on failure
+            return None, None, pd.DataFrame()
+        except json.JSONDecodeError as json_e:
+            st.error(f"❌ Failed to parse JSON data from GitHub: {json_e}")
+            return None, None, pd.DataFrame()
+
+    # --- Process Data (only if loaded successfully) ---
+    if full_results:
+        try:
+            # Call your existing function to process the results
+            app_df = get_application_data(full_results)
+            # st.write("Processed application data into DataFrame.") # Optional info message
+        except Exception as proc_e:
+            st.error(f"❌ Failed to process loaded data: {proc_e}")
+            app_df = pd.DataFrame() # Return empty if processing fails
+
+    # Ensure we return even if loading/processing failed partially
+    # If summary failed to load but results loaded, summary will be None
     return summary, full_results, app_df
 
 def get_application_data(results):
