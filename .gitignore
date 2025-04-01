@@ -25,7 +25,7 @@ __pycache__/
 # Ignore large data files
 data/raw/**/*.csv
 data/processed/*.csv
-data/nlp_results/*.csv
+# data/nlp_results/
 *.egg-info
 **/__pycache__/
 logs/*.log
@@ -34,3 +34,15 @@ logs/*.log
 data/interim/**
 visualisations.ipynb
 backup_20250321/
+# Ignore BERTopic model files
+data/nlp_results/bertopic_model/
+data/nlp_results/*bertopic*
+*.model
+*.pkl
+*.bin
+
+# Ignore other large ML model files
+**/models/
+**/saved_models/
+**/*.joblib
+**/*.h5
