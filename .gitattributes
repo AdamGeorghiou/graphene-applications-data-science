@@ -1,2 +1,4 @@
 data/nlp_results/*.json filter=lfs diff=lfs merge=lfs -text
 data/nlp_results/*.csv filter=lfs diff=lfs merge=lfs -text
+*.json filter=lfs diff=lfs merge=lfs -text
+*.csv filter=lfs diff=lfs merge=lfs -text
