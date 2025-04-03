@@ -5,7 +5,7 @@ venv/
 # Data Directories (raw data can be huge and may change frequently)
 data/raw/
 data/processed/
-# data/nlp_results/
+data/nlp_results/
 
 # Logs
 logs/

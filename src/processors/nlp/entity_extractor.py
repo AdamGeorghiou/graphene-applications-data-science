@@ -1,4 +1,3 @@
-# src/processors/nlp/entity_extractor.py
 from typing import Dict, List, Any
 import torch
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
@@ -6,6 +5,8 @@ import spacy
 import re
 import json
 import os
+import logging
+from tqdm import tqdm
 
 from .base_processor import BaseNLPProcessor
 
@@ -15,6 +16,8 @@ class GrapheneEntityExtractor(BaseNLPProcessor):
     1. Domain-specific NER model
     2. Pattern-based extraction with more sophisticated patterns
     3. SpaCy's built-in entity recognition as fallback
+    
+    Now with true GPU-accelerated batch processing support
     """
     
     def __init__(self, model_name="allenai/scibert_scivocab_uncased", device=None):
@@ -37,6 +40,19 @@ class GrapheneEntityExtractor(BaseNLPProcessor):
         
         # Initialize regex patterns for different entity types
         self._initialize_patterns()
+
+    def _setup_logging(self):
+        """Set up logging for the entity extractor"""
+        logger = logging.getLogger("GrapheneEntityExtractor")
+        logger.setLevel(logging.INFO)
+        
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            
+        return logger
     
     def _initialize_patterns(self):
         """Initialize regex patterns for entity extraction"""
@@ -89,8 +105,18 @@ class GrapheneEntityExtractor(BaseNLPProcessor):
             r'turnover\s*(?:frequency|number)\s*(?:of|is|was|:)?\s*(\d+(?:\.\d+)?)'
         ]
     
-    def _extract_with_patterns(self, text, patterns):
-        """Extract entities using regex patterns"""
+    def _extract_with_patterns_optimized(self, text, patterns, spacy_doc=None):
+        """
+        Extract entities using regex patterns with optional SpaCy doc
+        
+        Args:
+            text: Text to extract from
+            patterns: List of regex patterns to use
+            spacy_doc: Optional pre-processed SpaCy doc
+            
+        Returns:
+            List of entity dictionaries
+        """
         results = []
         for pattern in patterns:
             matches = re.finditer(pattern, text, re.IGNORECASE)
@@ -101,13 +127,15 @@ class GrapheneEntityExtractor(BaseNLPProcessor):
                 value = match.groups()[0] if match.groups() else None
                 
                 # Get the context around the match (sentence containing the match)
-                # First try using SpaCy for proper sentence boundaries
                 context = ""
-                doc = self.nlp(text)
-                for sent in doc.sents:
-                    if entity_text in sent.text:
-                        context = sent.text
-                        break
+                
+                # Use provided SpaCy doc if available
+                if spacy_doc:
+                    for sent in spacy_doc.sents:
+                        # Check if the entity text is within the sentence
+                        if entity_text in sent.text:
+                            context = sent.text
+                            break
                 
                 # If no context found (e.g., SpaCy failed to segment properly), get +/- 100 chars
                 if not context:
@@ -124,24 +152,32 @@ class GrapheneEntityExtractor(BaseNLPProcessor):
         
         return results
     
-    def extract_materials(self, text):
+    def extract_materials(self, text, spacy_doc=None):
         """Extract graphene material variants and descriptions"""
-        return self._extract_with_patterns(text, self.material_patterns)
+        return self._extract_with_patterns_optimized(text, self.material_patterns, spacy_doc)
     
-    def extract_fabrication_methods(self, text):
+    def extract_fabrication_methods(self, text, spacy_doc=None):
         """Extract fabrication and synthesis methods"""
-        return self._extract_with_patterns(text, self.fabrication_patterns)
+        return self._extract_with_patterns_optimized(text, self.fabrication_patterns, spacy_doc)
     
-    def extract_metrics(self, text):
+    def extract_metrics(self, text, spacy_doc=None):
         """Extract performance metrics with values and units"""
-        return self._extract_with_patterns(text, self.metrics_patterns)
+        return self._extract_with_patterns_optimized(text, self.metrics_patterns, spacy_doc)
     
-    def extract_entities_with_spacy(self, text):
-        """Extract generic named entities using SpaCy as fallback"""
-        doc = self.nlp(text)
+    def extract_entities_with_spacy(self, spacy_doc, text):
+        """
+        Extract generic named entities using SpaCy
+        
+        Args:
+            spacy_doc: Pre-processed SpaCy document
+            text: Original text (for context extraction)
+            
+        Returns:
+            List of entity dictionaries
+        """
         entities = []
         
-        for ent in doc.ents:
+        for ent in spacy_doc.ents:
             if ent.label_ in ["CHEMICAL", "ORG", "GPE", "DATE", "PRODUCT", "PERSON"]:
                 entities.append({
                     "text": ent.text,
@@ -154,24 +190,106 @@ class GrapheneEntityExtractor(BaseNLPProcessor):
     
     def process(self, text):
         """Process text to extract all relevant entities"""
-        if not text or len(text.strip()) == 0:
-            return {
-                "materials": [],
-                "fabrication_methods": [],
-                "metrics": [],
-                "entities": []
+        # Use batch processing with a single item for consistency
+        return self.process_batch([text])[0]
+    
+    def process_batch(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """
+        Process a batch of texts to extract entities with true batch processing
+        
+        Args:
+            texts: List of text strings to process
+            
+        Returns:
+            List of entity dictionaries, one per input text
+        """
+        self.logger.info(f"Processing batch of {len(texts)} texts for entity extraction")
+        
+        # Skip empty batch
+        if not texts:
+            return []
+        
+        # Initialize results list
+        batch_results = [{} for _ in range(len(texts))]
+        
+        # Filter out empty texts
+        valid_texts = []
+        valid_indices = []
+        for i, text in enumerate(texts):
+            if text and len(text.strip()) > 0:
+                valid_texts.append(text)
+                valid_indices.append(i)
+            else:
+                # Add empty results for empty texts
+                batch_results[i] = {
+                    "materials": [],
+                    "fabrication_methods": [],
+                    "metrics": [],
+                    "entities": []
+                }
+        
+        # Skip further processing if no valid texts
+        if not valid_texts:
+            return batch_results
+        
+        # Batch process with SpaCy
+        self.logger.info("Batch processing with SpaCy")
+        spacy_docs = list(self.nlp.pipe(valid_texts))
+        
+        # Batch process with HF NER pipeline if available
+        transformer_entities = None
+        if self.ner_pipeline and valid_texts:
+            try:
+                self.logger.info("Batch processing with Transformer NER")
+                # Process entire batch at once through the pipeline
+                # Use a reasonable batch size to avoid OOM errors
+                ner_batch_size = 16  # Adjust based on GPU memory
+                transformer_results = []
+                
+                # Process in sub-batches if needed
+                for i in range(0, len(valid_texts), ner_batch_size):
+                    sub_batch = valid_texts[i:i + ner_batch_size]
+                    sub_results = self.ner_pipeline(sub_batch)
+                    # Ensure results are always a list of lists
+                    if isinstance(sub_results, list) and not isinstance(sub_results[0], list):
+                        if len(sub_batch) == 1:
+                            transformer_results.append(sub_results)
+                        else:
+                            # This shouldn't normally happen but handle just in case
+                            for j in range(len(sub_batch)):
+                                transformer_results.append([])
+                    else:
+                        transformer_results.extend(sub_results)
+                
+                transformer_entities = transformer_results
+            except Exception as e:
+                self.logger.error(f"Error in transformer NER batch processing: {str(e)}")
+                transformer_entities = None
+        
+        # Now process each text with its SpaCy doc and transformer results
+        for batch_idx, doc_idx in enumerate(valid_indices):
+            spacy_doc = spacy_docs[batch_idx]
+            text = valid_texts[batch_idx]
+            
+            # Extract different types of entities using the SpaCy doc
+            materials = self.extract_materials(text, spacy_doc)
+            fabrication_methods = self.extract_fabrication_methods(text, spacy_doc)
+            metrics = self.extract_metrics(text, spacy_doc)
+            generic_entities = self.extract_entities_with_spacy(spacy_doc, text)
+            
+            # Create result dictionary
+            result = {
+                "materials": materials,
+                "fabrication_methods": fabrication_methods,
+                "metrics": metrics,
+                "entities": generic_entities
             }
+            
+            # Add transformer entities if available
+            if transformer_entities and batch_idx < len(transformer_entities):
+                result["transformer_entities"] = transformer_entities[batch_idx]
+            
+            # Store in the appropriate position in batch_results
+            batch_results[doc_idx] = result
         
-        # Extract different types of entities
-        materials = self.extract_materials(text)
-        fabrication_methods = self.extract_fabrication_methods(text)
-        metrics = self.extract_metrics(text)
-        generic_entities = self.extract_entities_with_spacy(text)
-        
-        return {
-            "materials": materials,
-            "fabrication_methods": fabrication_methods,
-            "metrics": metrics,
-            "entities": generic_entities
-        }
-
+        return batch_results
