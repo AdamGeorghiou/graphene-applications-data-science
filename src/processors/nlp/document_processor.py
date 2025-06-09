@@ -651,4 +651,4 @@ class GrapheneDocumentProcessor:
             return {
                     "total_documents_processed": len(results) if results else 0,
                     "error": f"Summary generation failed: {str(e)}"
-                   }
+                }
