@@ -1,378 +1,247 @@
+# src/processors/nlp/trl_assessor.py
+
 from typing import Dict, List, Any
 import re
+import numpy as np
 import torch
-from transformers import pipeline
+import torch.nn.functional as F
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 import logging
-from tqdm import tqdm
 
 from .base_processor import BaseNLPProcessor
 
 class TRLAssessor(BaseNLPProcessor):
     """
-    Assess Technology Readiness Level (TRL) of graphene applications
-    based on context and specific indicators
-    Now with GPU-accelerated batch processing support
+    Assesses Technology Readiness Level (TRL) using a hybrid approach.
+
+    This processor combines three signals for a robust 3-category TRL assessment:
+    1. Supervised Classifier: A fine-tuned SciBERT model trained on labeled data (primary signal).
+    2. Zero-Shot Classifier: A general-purpose model classifying text against 9 TRL descriptions.
+    3. Rule-Based Indicators: Regex matching for specific TRL-related keywords.
+
+    The final assessment is a weighted average of these three signals.
     """
-    
-    def __init__(self, model_name="allenai/scibert_scivocab_uncased", device=None):
-        super().__init__(model_name=model_name, device=device)
-        self.logger = self._setup_logging()
+
+    def __init__(self, model_name="facebook/bart-large-mnli", device=None, config=None,
+                supervised_model_path="models/trl_scibert_3cat", use_supervised=True):
         
-        # Set up zero-shot classification for TRL assessment
+        super().__init__(model_name, device, config)
+        self.logger = logging.getLogger(__name__) # Use standard Python logging
+
+        # --- 1. Setup Zero-Shot Classifier ---
         if self.device == "mps":
-            self.classifier = None
-            self.logger.info("Skipping HF zero-shot pipeline for MPS — unsupported, using fallback.")
+            self.zeroshot_classifier = None
+            self.logger.warning("Zero-shot pipeline is unsupported on MPS. Skipping initialization.")
         else:
-            self.classifier = pipeline(
-                "zero-shot-classification",
-                model="facebook/bart-large-mnli",
-                device=0 if self.device == "cuda" else -1
-            )
-        
-        # Define TRL levels with descriptions and indicators
-        self.trl_definitions = {
-            1: {
-                "name": "Technology prototype demonstrated in operational environment",
-                "description": "Prototype near or at planned operational system. Represents a major step up from TRL 6 by requiring demonstration of an actual system prototype in an operational environment.",
-                "indicators": [
-                    "operational environment", "system prototype", "demonstration", 
-                    "operational testing", "actual prototype", "real environment",
-                    "field tested", "operational demonstration", "prototype near planned system"
-                ]
-            },
-            8: {
-                "name": "System complete and qualified",
-                "description": "Technology has been proven to work in its final form and under expected conditions. In most cases, this TRL represents the end of true system development.",
-                "indicators": [
-                    "system complete", "qualified", "final form", "expected conditions", 
-                    "certification", "qualification testing", "ready for commercialization",
-                    "production ready", "commercial ready", "verification", "validation"
-                ]
-            },
-            9: {
-                "name": "Actual system proven in operational environment",
-                "description": "Actual application of the technology in its final form and under mission conditions, such as those encountered in operational test and evaluation.",
-                "indicators": [
-                    "actual system", "operational environment", "mission conditions", 
-                    "operational testing", "commercial application", "market", "industry",
-                    "commercialized", "production", "deployed", "industrial use", "real-world"
-                ]
-            }
-        }
-    
-    def _setup_logging(self):
-        """Set up logging for the TRL assessor"""
-        logger = logging.getLogger("TRLAssessor")
-        logger.setLevel(logging.INFO)
-        
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            
-        return logger
-    
-    def extract_trl_indicators(self, text):
-        """
-        Extract phrases that indicate specific TRL levels
-        """
-        trl_evidence = []
-        
-        for trl_level, trl_info in self.trl_definitions.items():
-            for indicator in trl_info["indicators"]:
-                # Look for indicator phrases in the text
-                pattern = r'(?i)\b' + re.escape(indicator) + r'\b'
-                for match in re.finditer(pattern, text):
-                    # Get the sentence containing the match for context
-                    sentence = self._extract_sentence(text, match.start(), match.end())
-                    
-                    trl_evidence.append({
-                        "trl_level": trl_level,
-                        "trl_name": trl_info["name"],
-                        "indicator": indicator,
-                        "context": sentence,
-                        "span": (match.start(), match.end())
-                    })
-        
-        return trl_evidence
-    
-    def extract_trl_indicators_batch(self, texts):
-        """
-        Extract phrases that indicate specific TRL levels from multiple texts
-        
-        Args:
-            texts: List of text strings to process
-            
-        Returns:
-            List of lists of TRL evidence dictionaries, one list per text
-        """
-        batch_evidence = []
-        
-        for text in texts:
-            # Process each text individually
-            # (regex processing is inherently sequential)
-            evidence = self.extract_trl_indicators(text)
-            batch_evidence.append(evidence)
-        
-        return batch_evidence
-    
-    def _extract_sentence(self, text, start, end):
-        """Extract the sentence containing a matched span"""
-        # Find the beginning of the sentence (previous period + space or start of text)
-        sentence_start = text.rfind('. ', 0, start) + 2
-        if sentence_start == 1:  # No period found or period is the first character
-            sentence_start = 0
-            
-        # Find the end of the sentence (next period + space or end of text)
-        sentence_end = text.find('. ', end)
-        if sentence_end == -1:  # No period found
-            sentence_end = len(text)
-        else:
-            sentence_end += 1  # Include the period
-            
-        return text[sentence_start:sentence_end].strip()
-    
-    def assess_trl_with_zero_shot(self, text):
-        """
-        Assess TRL level using zero-shot classification on key passages
-        """
-        # Use batch processing with a single item for consistency
-        return self.assess_trl_with_zero_shot_batch([text])[0]
-    
-    def assess_trl_with_zero_shot_batch(self, texts):
-        """
-        Assess TRL level using zero-shot classification for multiple texts
-        
-        Args:
-            texts: List of text strings to process
-            
-        Returns:
-            List of lists of TRL prediction dictionaries, one list per text
-        """
-        # Create labels for each TRL level
-        trl_labels = [f"TRL {level}: {info['name']}" for level, info in self.trl_definitions.items()]
-        
-        # Initialize empty results for each text
-        batch_predictions = [[] for _ in range(len(texts))]
-        
-        if self.classifier:
             try:
-                # Determine appropriate batch size based on text length
-                avg_length = sum(len(text.split()) for text in texts) / len(texts)
-                batch_size = min(16, max(1, int(5000 / max(1, avg_length))))
-                
-                # Process in smaller sub-batches to avoid OOM errors
-                for i in range(0, len(texts), batch_size):
-                    sub_batch = texts[i:i + batch_size]
-                    
-                    # Run zero-shot classification on the sub-batch
-                    results = self.classifier(sub_batch, trl_labels, multi_label=True)
-                    
-                    # Ensure results is a list of dictionaries (handle single item case)
-                    if not isinstance(results, list):
-                        results = [results]
-                    
-                    # Process each result
-                    for j, result in enumerate(results):
-                        predictions = []
-                        for label, score in zip(result['labels'], result['scores']):
-                            trl_level = int(label.split(':')[0].replace('TRL', '').strip())
-                            predictions.append({
-                                "trl_level": trl_level,
-                                "trl_name": self.trl_definitions[trl_level]["name"],
-                                "confidence": float(score),
-                                "method": "zero-shot"
-                            })
-                        
-                        # Sort by confidence score
-                        predictions.sort(key=lambda x: x["confidence"], reverse=True)
-                        batch_predictions[i + j] = predictions
-                
-                return batch_predictions
-                
+                self.zeroshot_classifier = pipeline(
+                    "zero-shot-classification",
+                    model=model_name, # Use the model from the base class init
+                    device=0 if str(self.device).startswith("cuda") else -1
+                )
+                self.logger.info(f"Zero-shot pipeline loaded on device: {self.zeroshot_classifier.device}")
             except Exception as e:
-                self.logger.error(f"Error in batch zero-shot TRL assessment: {str(e)}")
-                
-        # Fallback: empty predictions
-        return batch_predictions
-    
-    def refine_trl_assessment(self, evidence, predictions, source_type=None):
-        """
-        Combine evidence from different methods to estimate the final TRL level
-        with confidence scores and supporting evidence
-        """
-        if not evidence and not predictions:
-            return {
-                "trl_level": 0,
-                "confidence": 0,
-                "evidence": [],
-                "explanation": "Insufficient information to determine TRL level"
-            }
+                self.logger.error(f"Failed to load zero-shot pipeline: {e}")
+                self.zeroshot_classifier = None
         
-        # Count occurrences of each TRL level in the evidence
-        trl_counts = {}
-        for item in evidence:
-            level = item["trl_level"]
-            if level not in trl_counts:
-                trl_counts[level] = 0
-            trl_counts[level] += 1
-        
-        # Adjust for source type (e.g., patents usually indicate higher TRL)
-        if source_type:
-            source_type = source_type.lower()
-            if 'patent' in source_type:
-                # Patents typically indicate at least TRL 3-4
-                for level in range(1, 3):
-                    if level in trl_counts:
-                        trl_counts[level] *= 0.5  # Reduce weight of lower TRLs
-                for level in range(3, 10):
-                    if level in trl_counts:
-                        trl_counts[level] *= 1.5  # Increase weight of higher TRLs
-            
-            elif 'journal' in source_type or 'paper' in source_type:
-                # Academic papers can range widely but often focus on earlier TRLs
-                pass  # Use default weights
-        
-        # Combine with zero-shot predictions if available
-        if predictions:
-            for pred in predictions[:3]:  # Consider top 3 predictions
-                level = pred["trl_level"]
-                if level not in trl_counts:
-                    trl_counts[level] = 0
-                # Add weighted by confidence
-                trl_counts[level] += pred["confidence"] * 3  # Multiply by 3 to give appropriate weight
-        
-        # Select the TRL level with the highest score
-        max_count = 0
-        estimated_trl = 0
-        for level, count in trl_counts.items():
-            if count > max_count:
-                max_count = count
-                estimated_trl = level
-        
-        # Calculate confidence based on evidence strength
-        confidence = min(0.95, max_count / (sum(trl_counts.values()) + 0.001))
-        
-        # Prepare explanation
-        if estimated_trl > 0:
-            explanation = f"TRL {estimated_trl} ({self.trl_definitions[estimated_trl]['name']}) "
-            explanation += f"with {confidence:.2f} confidence based on {len(evidence)} indicators"
-        else:
-            explanation = "Unable to determine TRL level with sufficient confidence"
-        
-        return {
-            "trl_level": estimated_trl,
-            "trl_name": self.trl_definitions[estimated_trl]["name"] if estimated_trl > 0 else "",
-            "confidence": confidence,
-            "evidence": evidence,
-            "predictions": predictions[:3] if predictions else [],
-            "explanation": explanation
+        # --- 2. Setup Rule-Based Indicators (mapped to 3 categories) ---
+        self._setup_indicator_rules()
+
+        # --- 3. Setup Supervised Classifier ---
+        self.supervised_model = None
+        self.supervised_tokenizer = None
+        self.use_supervised = use_supervised
+        if self.use_supervised:
+            try:
+                self.logger.info(f"Loading supervised TRL classifier from {supervised_model_path}")
+                self.supervised_tokenizer = AutoTokenizer.from_pretrained(supervised_model_path)
+                self.supervised_model = AutoModelForSequenceClassification.from_pretrained(supervised_model_path)
+                self.supervised_model.to(self.device)
+                self.supervised_model.eval()
+                self.logger.info("Supervised TRL classifier loaded successfully.")
+            except OSError:
+                self.logger.warning(f"Could not find supervised TRL model at {supervised_model_path}. "
+                                "TRL assessment will rely on zero-shot and rule-based methods only. "
+                                "Please run the training script to enable the supervised model.")
+                self.supervised_model = None
+
+    def _setup_indicator_rules(self):
+        """Define TRL indicator rules, mapping keywords to the 3 TRL categories."""
+        self.indicator_rules = {
+            # Category 0: Early (TRL 1-3)
+            0: [
+                "basic principles", "concept formulated", "proof of concept", "lab testing",
+                "experimental", "fundamental research", "theoretical", "simulation", "feasibility"
+            ],
+            # Category 1: Mid (TRL 4-6)
+            1: [
+                "lab validation", "component validation", "lab environment", "relevant environment",
+                "prototype", "system validation", "technology demonstration", "lab-scale"
+            ],
+            # Category 2: Late (TRL 7-9)
+            2: [
+                "operational environment", "system prototype", "field tested", "qualified",
+                "system complete", "production ready", "commercial ready", "commercialization",
+                "actual system", "mission conditions", "commercial application", "market",
+                "industry", "production", "deployed", "industrial use", "real-world"
+            ]
         }
-    
-    def refine_trl_assessment_batch(self, batch_evidence, batch_predictions, batch_source_types=None):
-        """
-        Batch process TRL assessment refinement for multiple documents
-        
-        Args:
-            batch_evidence: List of lists of evidence dictionaries
-            batch_predictions: List of lists of prediction dictionaries
-            batch_source_types: Optional list of source types
+        # Pre-compile regex patterns for efficiency
+        self.compiled_rules = {
+            cat: re.compile(r'(?i)\b(' + '|'.join(re.escape(kw) for kw in kws) + r')\b')
+            for cat, kws in self.indicator_rules.items()
+        }
+        # Labels for the 9-level zero-shot model
+        self.trl9_labels = [f"TRL {i} Description" for i in range(1, 10)]
+
+    def _extract_indicators_batch(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """Extracts TRL indicators using pre-compiled regex and maps them to 3 categories."""
+        results = []
+        for text in texts:
+            votes = [0, 0, 0] # Votes for Early, Mid, Late
+            found_indicators = []
+            for category_idx, pattern in self.compiled_rules.items():
+                matches = pattern.findall(text)
+                if matches:
+                    votes[category_idx] += len(matches)
+                    found_indicators.extend(matches)
             
-        Returns:
-            List of assessment dictionaries, one per document
-        """
-        batch_assessments = []
-        
-        for i in range(len(batch_evidence)):
-            # Get evidence and predictions for this document
-            evidence = batch_evidence[i]
-            predictions = batch_predictions[i] if i < len(batch_predictions) else []
+            total_votes = sum(votes)
+            rule_probs = [v / total_votes if total_votes > 0 else 1/3 for v in votes]
+            results.append({"rule_probs": rule_probs, "found_indicators": list(set(found_indicators))})
+        return results
+
+    def _classify_zeroshot_batch(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """Performs 9-level TRL zero-shot classification and returns raw probabilities."""
+        if not self.zeroshot_classifier:
+            return [{"zeroshot_probs_9": [1/9]*9}] * len(texts)
             
-            # Get source type if available
-            source_type = None
-            if batch_source_types and i < len(batch_source_types):
-                source_type = batch_source_types[i]
+        results = []
+        try:
+            # The pipeline handles batching internally and is faster with multi_label=False for this task
+            outputs = self.zeroshot_classifier(texts, self.trl9_labels, multi_label=False)
+            # Ensure output is always a list
+            if not isinstance(outputs, list):
+                outputs = [outputs]
+
+            for out in outputs:
+                score_dict = {label: score for label, score in zip(out['labels'], out['scores'])}
+                # Ensure order is correct from TRL 1 to 9
+                ordered_scores = [score_dict.get(f"TRL {i} Description", 0.0) for i in range(1, 10)]
+                results.append({"zeroshot_probs_9": ordered_scores})
+        except Exception as e:
+            self.logger.error(f"Error in zero-shot batch processing: {e}")
+            results = [{"zeroshot_probs_9": [1/9]*9}] * len(texts)
+        return results
+
+    def _predict_supervised_batch(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """Generates 3-category TRL predictions using the fine-tuned SciBERT model."""
+        if not self.supervised_model:
+            # If model isn't loaded, return a neutral (uninformative) probability
+            return [{"supervised_probs": [1/3, 1/3, 1/3]}] * len(texts)
             
-            # Refine assessment for this document
-            assessment = self.refine_trl_assessment(evidence, predictions, source_type)
-            batch_assessments.append(assessment)
+        inputs = self.supervised_tokenizer(
+            texts, padding=True, truncation=True, max_length=512, return_tensors="pt"
+        ).to(self.device)
         
-        return batch_assessments
-    
-    def process(self, text, source_type=None):
-        """
-        Process document to assess TRL level
-        """
-        # Use batch processing with a single item for consistency
-        return self.process_batch([text], [source_type] if source_type else None)[0]
-    
+        with torch.no_grad():
+            logits = self.supervised_model(**inputs).logits
+            
+        probabilities = F.softmax(logits, dim=-1).cpu().tolist()
+        return [{"supervised_probs": probs} for probs in probabilities]
+
+    def _refine_assessment(self, indicator_res, zeroshot_res, supervised_res, source_type):
+        """Combines all signals using a weighted average to produce the final assessment."""
+        # --- Define weights for combining signals. These can be tuned. ---
+        W_SUPERVISED = 0.60
+        W_ZEROSHOT = 0.25
+        W_RULES = 0.15
+
+        # 1. Get supervised probabilities (already 3-cat)
+        supervised_probs = supervised_res.get("supervised_probs", [1/3]*3)
+
+        # 2. Get zero-shot probabilities (9-cat) and map to 3 categories
+        zeroshot_9 = zeroshot_res.get("zeroshot_probs_9", [1/9]*9)
+        early_zs = sum(zeroshot_9[0:3]); mid_zs = sum(zeroshot_9[3:6]); late_zs = sum(zeroshot_9[6:9])
+        total_zs = early_zs + mid_zs + late_zs
+        zeroshot_3 = [p / total_zs for p in [early_zs, mid_zs, late_zs]] if total_zs > 0 else [1/3]*3
+        
+        # 3. Get rule-based probabilities (already 3-cat)
+        rule_probs = indicator_res.get("rule_probs", [1/3]*3)
+        
+        # 4. Apply source-type heuristic adjustment (optional, a small nudge)
+        if source_type and 'patent' in source_type.lower():
+            # Slightly boost mid/late probabilities for patents
+            rule_probs[1] *= 1.1; rule_probs[2] *= 1.2
+            total = sum(rule_probs); rule_probs = [p / total for p in rule_probs]
+
+        # 5. Calculate final weighted-average score for each category
+        final_scores = [
+            (W_SUPERVISED * sup) + (W_ZEROSHOT * zs) + (W_RULES * rule)
+            for sup, zs, rule in zip(supervised_probs, zeroshot_3, rule_probs)
+        ]
+
+        # 6. Determine final category and confidence
+        final_category_idx = int(np.argmax(final_scores))
+        confidence = final_scores[final_category_idx]
+        id2label = {0: "Early (TRL 1-3)", 1: "Mid (TRL 4-6)", 2: "Late (TRL 7-9)"}
+
+        return {
+            "trl_category": id2label[final_category_idx],
+            "trl_category_id": final_category_idx,
+            "confidence": float(confidence),
+            "details": {
+                "final_scores": final_scores,
+                "supervised_probs": supervised_probs,
+                "zeroshot_probs_3cat": zeroshot_3,
+                "rule_probs_3cat": rule_probs,
+                "source_type": source_type,
+                "found_indicators": indicator_res.get("found_indicators", [])
+            }
+        }
+
     def process_batch(self, texts: List[str], batch_source_types: List[str] = None) -> List[Dict[str, Any]]:
         """
-        Process a batch of documents to assess TRL levels
-        
-        Args:
-            texts: List of text strings to process
-            batch_source_types: Optional list of source types for each text
-            
-        Returns:
-            List of TRL assessment dictionaries, one per text
+        Processes a batch of documents to assess TRL, handling empty texts.
         """
-        self.logger.info(f"Processing batch of {len(texts)} texts for TRL assessment")
-        
-        # Skip empty batch
         if not texts:
             return []
-        
-        # Initialize results for empty texts
-        batch_results = []
-        valid_texts = []
-        valid_indices = []
-        valid_source_types = []
-        
-        # Filter out empty texts
+            
+        self.logger.info(f"Assessing TRL for a batch of {len(texts)} documents.")
+        if batch_source_types is None:
+            batch_source_types = ["unknown"] * len(texts)
+
+        # Handle empty/invalid texts to avoid processing errors
+        full_results = [None] * len(texts)
+        valid_texts, valid_indices, valid_sources = [], [], []
         for i, text in enumerate(texts):
-            if not text or len(text.strip()) == 0:
-                batch_results.append({
-                    "trl_level": 0,
-                    "confidence": 0,
-                    "evidence": [],
-                    "explanation": "Empty text"
-                })
-            else:
+            if text and text.strip():
                 valid_texts.append(text)
                 valid_indices.append(i)
-                
-                # Get source type if available
-                if batch_source_types and i < len(batch_source_types):
-                    valid_source_types.append(batch_source_types[i])
-                else:
-                    valid_source_types.append(None)
+                valid_sources.append(batch_source_types[i])
+            else:
+                full_results[i] = {
+                    "trl_category": "Unknown", "trl_category_id": -1, "confidence": 0.0,
+                    "details": {"error": "Input text was empty."}
+                }
         
-        # Skip further processing if no valid texts
         if not valid_texts:
-            return batch_results
+            return full_results
+
+        # Run all processors on the valid texts
+        indicator_results = self._extract_indicators_batch(valid_texts)
+        zeroshot_results = self._classify_zeroshot_batch(valid_texts)
+        supervised_results = self._predict_supervised_batch(valid_texts)
         
-        # Ensure batch_results has placeholders for all texts
-        while len(batch_results) < len(texts):
-            batch_results.append(None)
-        
-        # Extract TRL indicators from valid texts
-        self.logger.info("Extracting TRL indicators")
-        batch_evidence = self.extract_trl_indicators_batch(valid_texts)
-        
-        # Assess TRL using zero-shot classification for valid texts
-        self.logger.info("Performing zero-shot TRL assessment")
-        batch_predictions = self.assess_trl_with_zero_shot_batch(valid_texts)
-        
-        # Combine evidence to determine final TRL levels
-        self.logger.info("Refining TRL assessments")
-        batch_assessments = self.refine_trl_assessment_batch(
-            batch_evidence, batch_predictions, valid_source_types
-        )
-        
-        # Place results in the correct positions
-        for i, assessment in enumerate(batch_assessments):
-            batch_results[valid_indices[i]] = assessment
-        
-        return batch_results
+        # Refine and combine results for each valid document
+        refined_assessments = [
+            self._refine_assessment(ind_res, zs_res, sup_res, src)
+            for ind_res, zs_res, sup_res, src in zip(indicator_results, zeroshot_results, supervised_results, valid_sources)
+        ]
+
+        # Place refined results back into their original positions in the full list
+        for i, assessment in enumerate(refined_assessments):
+            original_index = valid_indices[i]
+            full_results[original_index] = assessment
+            
+        return full_results
