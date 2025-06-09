@@ -45,6 +45,7 @@ class GrapheneDocumentProcessor:
 
         # Initialize component processors
         self._initialize_processors()
+        self._init_runbuffer()
 
     def _setup_logging(self):
         """Set up logging for the document processor"""
@@ -119,6 +120,22 @@ class GrapheneDocumentProcessor:
         except Exception as e:
             self.logger.error(f"Fatal error initializing processors: {str(e)}", exc_info=True)
             raise # Re-raise the exception to halt execution if initialization fails
+    
+
+    def _init_runbuffer(self):
+        """buffer that stores every per-doc dict until flush() is called"""
+        self._runbuffer: list[dict] = []
+
+    def _flush_jsonl(self, fname: str = "docs_full.jsonl.gz"):
+        """write buffer to compressed JSONL, then clear it"""
+        if not self._runbuffer:
+            return
+        out_path = Path(self.output_dir) / fname
+        with gzip.open(out_path, "wt", encoding="utf-8") as f:
+            for rec in self._runbuffer:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        self.logger.info(f"Wrote {len(self._runbuffer)} records → {out_path}")
+        self._runbuffer = []
 
     def process_batch(self, documents: List[Dict], batch_size: int = 32):
         """
@@ -137,24 +154,22 @@ class GrapheneDocumentProcessor:
 
         num_batches = (len(documents) + batch_size - 1) // batch_size
         batch_iterator = tqdm(range(0, total_docs, batch_size),
-                              total=num_batches,
-                              desc="Processing Batches",
-                              unit="batch")
+                            total=num_batches,
+                            desc="Processing Batches",
+                            unit="batch")
 
-        processed_count = 0
-        error_count = 0
+        processed_count = 0 # Counts successfully processed docs added to runbuffer
+        error_in_results_count = 0 # Counts docs that will have an error dict in the 'results' list
 
         for i in batch_iterator:
             start_index = i
             end_index = min(i + batch_size, total_docs)
             current_batch_docs = documents[start_index:end_index]
-            # Map batch indices back to original indices
-            original_indices = list(range(start_index, end_index))
+            original_indices = list(range(start_index, end_index)) # Original indices from the full 'documents' list
 
-            # --- Prepare batch data ---
             batch_texts = []
-            valid_indices_in_batch = [] # Indices relative to the start of the full documents list
-            source_types_for_batch = [] # Source types ONLY for valid texts
+            valid_indices_in_batch = [] # Stores original indices of valid texts within this batch
+            source_types_for_batch = [] # Source types ONLY for valid texts in this batch
 
             for doc_idx, doc in zip(original_indices, current_batch_docs):
                 title = doc.get('title', '')
@@ -162,24 +177,24 @@ class GrapheneDocumentProcessor:
                 full_text = f"{title} {abstract}".strip()
 
                 if not full_text:
-                    results[doc_idx] = { # Assign error directly to the correct index
+                    error_dict = {
                         "id": doc.get('id', f"unknown_{doc_idx}"),
                         "source": doc.get('source', 'unknown'),
                         "error": "Empty document (no title or abstract)"
                     }
-                    error_count += 1
-                    continue # Skip this document for batch processing
+                    results[doc_idx] = error_dict
+                    # self._runbuffer.append(error_dict) # Decide if you want to add error records to JSONL
+                    error_in_results_count += 1
+                    continue
 
                 batch_texts.append(full_text)
                 source_types_for_batch.append(doc.get('source', ''))
-                valid_indices_in_batch.append(doc_idx) # Store original index
+                valid_indices_in_batch.append(doc_idx)
 
-            # If all docs in batch were empty or skipped
             if not valid_indices_in_batch:
                 self.logger.debug(f"Skipping batch starting at {start_index} as no valid documents found.")
                 continue
 
-            # --- Execute batched NLP tasks ---
             try:
                 self.logger.debug(f"Processing {len(batch_texts)} valid texts for batch starting at original index {start_index}")
 
@@ -193,81 +208,83 @@ class GrapheneDocumentProcessor:
                 application_results_batch = self.application_classifier.process_batch(batch_texts)
                 self.logger.debug(f"Finished application classification batch (got {len(application_results_batch)} results).")
 
-                # 3. Relation Extraction (needs extracted entities)
+                # 3. Relation Extraction
                 self.logger.debug("Starting relation extraction batch...")
-                # Ensure entity_results_batch length matches batch_texts length
                 if len(entity_results_batch) != len(batch_texts):
-                    self.logger.error(f"Entity results length mismatch ({len(entity_results_batch)} vs {len(batch_texts)}). Skipping relation extraction for batch.")
-                    # Handle error - maybe mark docs as errored or provide empty relations
-                    relation_results_batch = [{} for _ in batch_texts] # Provide empty results
+                    self.logger.error(f"Entity results length mismatch for batch starting at {start_index}. Defaulting relations.")
+                    relation_results_batch = [{} for _ in batch_texts]
                 else:
                     relation_results_batch = self.relation_extractor.process_batch(batch_texts, entity_results_batch)
                 self.logger.debug(f"Finished relation extraction batch (got {len(relation_results_batch)} results).")
 
                 # 4. TRL Assessment
                 self.logger.debug("Starting TRL assessment batch...")
-                # Pass source types corresponding ONLY to the valid texts
                 trl_results_batch = self.trl_assessor.process_batch(batch_texts, source_types_for_batch)
                 self.logger.debug(f"Finished TRL assessment batch (got {len(trl_results_batch)} results).")
 
                 # --- Combine results for the valid documents in this batch ---
                 self.logger.debug(f"Combining results for {len(valid_indices_in_batch)} valid documents.")
-                for batch_idx, original_doc_idx in enumerate(valid_indices_in_batch):
-                    # Check if sub-processor results lengths match expected batch size
-                    if batch_idx >= len(entity_results_batch) or \
-                       batch_idx >= len(application_results_batch) or \
-                       batch_idx >= len(relation_results_batch) or \
-                       batch_idx >= len(trl_results_batch):
-                        self.logger.error(f"Result length mismatch for document index {original_doc_idx} (batch index {batch_idx}). Marking as error.")
-                        results[original_doc_idx] = {
+                for batch_item_idx, original_doc_idx in enumerate(valid_indices_in_batch):
+                    # Check for length mismatches from sub-processors for this specific item
+                    if batch_item_idx >= len(entity_results_batch) or \
+                    batch_item_idx >= len(application_results_batch) or \
+                    batch_item_idx >= len(relation_results_batch) or \
+                    batch_item_idx >= len(trl_results_batch):
+
+                        self.logger.error(f"Sub-processor result length mismatch for document original_index {original_doc_idx} (batch item index {batch_item_idx}). Marking as error.")
+                        error_dict = {
                             "id": documents[original_doc_idx].get('id', f"unknown_{original_doc_idx}"),
                             "source": documents[original_doc_idx].get('source', 'unknown'),
                             "error": "Sub-processor result length mismatch"
                         }
-                        error_count += 1
+                        results[original_doc_idx] = error_dict
+                        # self._runbuffer.append(error_dict) # Decide if you want to add error records to JSONL
+                        error_in_results_count += 1
                         continue
 
-                    doc = documents[original_doc_idx] # Get original doc for metadata
+                    doc_metadata = documents[original_doc_idx] # Get original doc for metadata
                     year = None
-                    if 'published_date' in doc and doc['published_date'] is not None:
-                         pub_date = doc['published_date']
-                         if isinstance(pub_date, str) and len(pub_date) >= 4:
-                             try: year = int(pub_date[:4])
-                             except (ValueError, TypeError): pass # Ignore conversion errors
-                         elif isinstance(pub_date, (int, float)):
-                             # Ensure year is within a reasonable range
-                              if 1900 <= int(pub_date) <= 2100:
-                                   year = int(pub_date)
+                    if 'published_date' in doc_metadata and doc_metadata['published_date'] is not None:
+                        pub_date = doc_metadata['published_date']
+                        if isinstance(pub_date, str) and len(pub_date) >= 4:
+                            try: year = int(pub_date[:4])
+                            except (ValueError, TypeError): pass
+                        elif isinstance(pub_date, (int, float)):
+                            if 1900 <= int(pub_date) <= 2100:
+                                year = int(pub_date)
 
-                    # Assign results to the correct pre-allocated slot
-                    results[original_doc_idx] = {
-                        "id": doc.get('id', f"unknown_{original_doc_idx}"),
-                        "source": doc.get('source', 'unknown'),
-                        "title": doc.get('title', ''),
-                        # "abstract": doc.get('abstract', ''), # Optional: Exclude abstract
+                    # This is the successfully processed document dictionary
+                    successful_doc_dict = {
+                        "id": doc_metadata.get('id', f"unknown_{original_doc_idx}"),
+                        "source": doc_metadata.get('source', 'unknown'),
+                        "title": doc_metadata.get('title', ''),
                         "year": year,
-                        "applications": application_results_batch[batch_idx],
-                        "entities": entity_results_batch[batch_idx],
-                        "relations": relation_results_batch[batch_idx],
-                        "trl_assessment": trl_results_batch[batch_idx]
+                        "applications": application_results_batch[batch_item_idx],
+                        "entities": entity_results_batch[batch_item_idx],
+                        "relations": relation_results_batch[batch_item_idx],
+                        "trl_assessment": trl_results_batch[batch_item_idx]
                     }
-                    processed_count +=1
+                    results[original_doc_idx] = successful_doc_dict
+                    self._runbuffer.append(successful_doc_dict) # Append successful dict to runbuffer
+                    processed_count += 1
 
             except Exception as batch_err:
-                self.logger.error(f"Error processing batch starting at original index {start_index}: {batch_err}", exc_info=True)
-                # Mark all valid docs attempted in this batch as errored
+                self.logger.error(f"Major error processing batch starting at original index {start_index}: {batch_err}", exc_info=True)
+                # Mark all valid docs attempted in this batch as errored in the 'results' list
                 for original_doc_idx in valid_indices_in_batch:
-                     results[original_doc_idx] = { # Assign error directly
-                         "id": documents[original_doc_idx].get('id', f"unknown_{original_doc_idx}"),
-                         "source": documents[original_doc_idx].get('source', 'unknown'),
-                         "error": f"Batch processing error: {str(batch_err)}",
-                         "traceback": traceback.format_exc() # Include traceback for debugging
-                     }
-                     error_count += 1
+                    error_dict = {
+                        "id": documents[original_doc_idx].get('id', f"unknown_{original_doc_idx}"),
+                        "source": documents[original_doc_idx].get('source', 'unknown'),
+                        "error": f"Batch processing error: {str(batch_err)}",
+                        "traceback": traceback.format_exc()
+                    }
+                    results[original_doc_idx] = error_dict
+                    # self._runbuffer.append(error_dict) # Decide if you want to add error records to JSONL
+                    error_in_results_count += 1
 
-        self.logger.info(f"Finished processing {total_docs} documents. Processed successfully: {processed_count}. Errors: {error_count}.")
+        total_errors_in_results = sum(1 for r in results if r and isinstance(r, dict) and 'error' in r)
+        self.logger.info(f"Finished processing all batches. Successfully processed (and buffered for JSONL): {processed_count}. Total entries in results list with errors: {total_errors_in_results}.")
         return results
-
 
     def process_collection(self, documents_df: pd.DataFrame, batch_size: int = 32):
         """
@@ -306,7 +323,7 @@ class GrapheneDocumentProcessor:
 
         # Save results and summary
         self._save_results(results, summary)
-
+        self._flush_jsonl() 
         return results, summary
 
     def _safe_json_convert(self, obj):
