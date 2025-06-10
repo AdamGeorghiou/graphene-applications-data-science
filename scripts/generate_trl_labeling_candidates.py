@@ -1,48 +1,62 @@
-# scripts/generate_trl_labeling_candidates.py
 import pandas as pd
 import logging
 
-# --- Configuration ---
-INPUT_DATA_PATH = "data/processed/full_cleaned_data.csv"
-OUTPUT_CANDIDATE_PATH = "data/labelled/trl_labeling_candidates.csv"
-NUM_CANDIDATES = 600 # Total number of random documents to select for labeling
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Constants
+INPUT_DATA_PATH = "data/processed/cleaned_graphene_data.csv"
+OUTPUT_CANDIDATE_PATH = "data/labelled/trl_labeling_candidates.csv"
+NUM_CANDIDATES = 600
 
 def main():
     logging.info("Loading data from %s", INPUT_DATA_PATH)
+    
     try:
         df = pd.read_csv(INPUT_DATA_PATH)
     except FileNotFoundError:
         logging.error(f"FATAL: Input data file not found at {INPUT_DATA_PATH}. Please ensure this file exists.")
         return
-
-    # --- FIX for the KeyError ---
-    # The previous crash was due to a missing 'doc_id' column.
-    # We will now check for it and create it if it's missing.
-    if 'doc_id' not in df.columns:
-        logging.warning("Warning: 'doc_id' column not found in the input CSV.")
-        logging.warning("Creating a temporary 'doc_id' from the DataFrame index for traceability.")
-        df['doc_id'] = [f"temp_id_{i}" for i in df.index]
-
-    # --- FIX for the slow, ineffective weak labeling ---
-    # The old method was not working. A simple random sample is faster
-    # and still achieves the primary goal: getting a pool of documents to label.
-    logging.info(f"Selecting {NUM_CANDIDATES} random candidates for the labeling pool...")
     
-    # Ensure we don't try to sample more rows than exist
-    num_to_sample = min(len(df), NUM_CANDIDATES)
-    candidate_df = df.sample(n=num_to_sample, random_state=42)
-
-    # Prepare the final CSV for labeling tools
+    logging.info(f"Original dataset: {len(df)} records")
+    
+    # --- CRITICAL FILTERING STEP ---
+    # 1. Exclude patents by their source name.
+    # 2. Ensure the abstract column is not empty/null and meaningful.
+    df_filtered = df[
+        (~df['source'].str.contains('patent', case=False, na=False)) & 
+        (df['abstract'].notna()) &
+        (df['abstract'].str.strip().str.len() > 20)  # Ensures abstract is meaningful
+    ].copy()
+    
+    logging.info(f"After filtering: {len(df_filtered)} non-patent documents with abstracts")
+    logging.info(f"Filtered out: {len(df) - len(df_filtered)} patents/short abstracts")
+    
+    # Check if we have enough data
+    if len(df_filtered) < NUM_CANDIDATES:
+        logging.warning(f"Only {len(df_filtered)} records available, sampling all of them")
+        num_to_sample = len(df_filtered)
+    else:
+        num_to_sample = NUM_CANDIDATES
+    
+    # Sample from the clean, high-quality pool
+    candidate_df = df_filtered.sample(n=num_to_sample, random_state=42)
+    
+    # Create doc_id if missing
+    if 'doc_id' not in candidate_df.columns:
+        logging.warning("Creating temporary 'doc_id' from DataFrame index")
+        candidate_df['doc_id'] = [f"temp_id_{i}" for i in candidate_df.index]
+    
+    # Prepare the final dataset for labeling
     labeling_pool = candidate_df[['doc_id', 'title', 'abstract']].copy()
     labeling_pool['text_to_label'] = labeling_pool['title'].fillna('') + ". " + labeling_pool['abstract'].fillna('')
     
-    logging.info(f"Generated {len(labeling_pool)} candidates for manual labeling.")
+    # Save only what we need for labeling
+    final_output = labeling_pool[['doc_id', 'text_to_label']].copy()
+    final_output.to_csv(OUTPUT_CANDIDATE_PATH, index=False)
     
-    # We only need the text and an ID, so we simplify the output file.
-    labeling_pool[['doc_id', 'text_to_label']].to_csv(OUTPUT_CANDIDATE_PATH, index=False)
-    logging.info(f"Candidates ready for labeling at: {OUTPUT_CANDIDATE_PATH}")
+    logging.info(f"Generated {len(final_output)} high-quality candidates for manual labeling")
+    logging.info(f"Candidates saved to: {OUTPUT_CANDIDATE_PATH}")
     logging.info("Script finished successfully.")
 
 if __name__ == "__main__":

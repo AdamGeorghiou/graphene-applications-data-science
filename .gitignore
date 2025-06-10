@@ -46,3 +46,17 @@ data/nlp_results/*bertopic*
 **/saved_models/
 **/*.joblib
 **/*.h5
+# .gitignore file
+
+# Ignore large generated data files
+data/labelled/all_papers_gpt_labels.jsonl
+
+# It's often better to ignore the whole directory
+data/labelled/
+data/training/
+data/splits/
+
+# Also ignore Python cache and venv
+__pycache__/
+*.pyc
+venv/
